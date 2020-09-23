@@ -2,6 +2,7 @@ use actix_web::{App, HttpServer};
 mod config;
 mod config_command;
 mod currency_transaction;
+mod get_transaction_info;
 use actix_cors::Cors; //跨域crate
 use clap::ArgMatches;
 use log::Level;
@@ -24,6 +25,10 @@ async fn main() -> std::io::Result<()> {
             .data(config::get_db())
             .data(config::ConfigPath::default())
             .service(currency_transaction::digistal_transaction)
+            .service(get_transaction_info::get_currency_info)
+            .service(get_transaction_info::get_exchange_info)
+            .service(get_transaction_info::get_currency_list)
+            .service(get_transaction_info::get_transaction_list)
     })
     .bind(_path)?
     .run()

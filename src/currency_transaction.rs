@@ -16,6 +16,16 @@ use tokio::fs::File;
 use tokio::prelude::*;
 use deadpool_postgres::Pool;
 
+/*
+ *function: 数字货币交易
+ * param：
+ * data: 数据库连接句柄
+ * req：数据请求结构
+ * req_head::http请求头，包含用户认证
+ *
+ * return :响应数据code=0成功，其他值参考错误列表
+ */
+
 //请求结构
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DcdsRequestBody {
@@ -103,8 +113,8 @@ pub async fn digistal_transaction(
     //获取交易id
     let transaction_id: String = transaction_wrapper.get_id_str();
     //货币使用状态
-    let possess = String::from("possess");
-    let transfer = String::from("transfer");
+    let possess = String::from("circulate");
+    let transfer = String::from("destroy");
     //为存储输入输出分析存储货币id
     let mut input_currency_id:Vec<String> = Vec::new();
     let mut output_currency_id:Vec<String> = Vec::new();
@@ -119,7 +129,7 @@ pub async fn digistal_transaction(
         let owner_str: String = owner.to_bytes().encode_hex::<String>();
         //数据表检查数字货币id
         let select_currency = match conn.query(
-            "SELECT state from transactions where currency_id = $1 and cloud_user_id = $2",
+            "SELECT status from transactions where currency_id = $1 and cloud_user_id = $2",
             &[&currency_id, &head_str]
         ).await{
             Ok(row) => {
@@ -132,7 +142,7 @@ pub async fn digistal_transaction(
             }
         };
         if select_currency.is_empty() {
-            conn.query("INSERT INTO transactions (currency_id, transaction_id, state, owner, amount, cloud_user_id,
+            conn.query("INSERT INTO transactions (currency_id, transaction_id, status, owner, amount, cloud_user_id,
                 create_time, update_time) VALUES ($1, $2, $3, $4, $5 ,$6,now(), now())",
                 &[&currency_id, &transaction_id, &transfer, &owner_str,&amount, &head_str]).await.unwrap();
         }else{
@@ -141,12 +151,14 @@ pub async fn digistal_transaction(
                 warn!("this digistal currency Traded transfer");
                 return HttpResponse::Ok().json(ResponseBody::<()>::currency_state_error());
             }else{
-                conn.query("UPDATE transactions SET state = $1, owner=$2, update_time = now() WHERE currency_id = $3 and cloud_user_id = $4",
+                conn.query("UPDATE transactions SET status = $1, owner=$2, update_time = now() WHERE currency_id = $3 and cloud_user_id = $4",
                 &[&transfer, &owner_str, &currency_id, &head_str]).await.unwrap();
             }
         }
         input_currency_id.push(currency_id);
     }
+    //本次交易总金额
+    let mut total_amount: i64 = 0;
     //输出的数字货币
     let output_vec: Vec<DigitalCurrencyWrapper> = transaction_wrapper.gen_new_currency(&keypair_sm2,&mut rng);
     for currency in output_vec.iter(){
@@ -154,11 +166,12 @@ pub async fn digistal_transaction(
         let currency_id = currency.get_body().get_id_str();
         //金额
         let amount:i64 = currency.get_body().get_amount() as i64;
+        total_amount += amount;
         //所有者
         let owner: CertificateSm2 = currency.get_body().get_owner().clone();
         let owner_str: String = owner.to_bytes().encode_hex::<String>();
         
-        conn.query("INSERT INTO transactions (currency_id, transaction_id, state, owner, amount,cloud_user_id,
+        conn.query("INSERT INTO transactions (currency_id, transaction_id, status, owner, amount,cloud_user_id,
             create_time, update_time) VALUES ($1, $2, $3, $4, $5 ,$6,now(), now())",
             &[&currency_id, &transaction_id, &possess, &owner_str,&amount, &head_str]).await.unwrap();
         
@@ -181,9 +194,9 @@ pub async fn digistal_transaction(
         }
     }
     //记录本次交易
-    match conn.query("INSERT INTO exchanges (transaction_id, trans_info, trans_bin,
-    create_time, update_time) VALUES ($1, $2, $3, now(), now())",
-    &[&transaction_id, &json_transaction, &req.curr_transaction]).await{
+    match conn.query("INSERT INTO exchanges (transaction_id, cloud_user_id, trans_info, trans_bin, amount, 
+        create_time, update_time) VALUES ($1, $2, $3, $4, $5, now(), now())",
+    &[&transaction_id, &head_str, &json_transaction, &req.curr_transaction, &total_amount]).await{
         Ok(_) => {
             info!("exchanges table transaction struct success");
             return HttpResponse::Ok().json(ResponseBody::<DcdsResponsetBody>::new_success(Some(DcdsResponsetBody{

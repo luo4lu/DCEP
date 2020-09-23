@@ -57,4 +57,12 @@ impl<T> ResponseBody<T> {
             data: None,
         }
     }
+    ///用户信息错误，无此货币
+    pub fn currency_is_none() -> Self {
+        ResponseBody {
+            code: 90006,
+            message: String::from("用户信息错误，无此货币"),
+            data: None,
+        }
+    }
 }
