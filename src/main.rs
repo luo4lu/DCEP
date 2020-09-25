@@ -16,7 +16,7 @@ async fn main() -> std::io::Result<()> {
     let matches: ArgMatches = config_command::get_command();
     if let Some(t) = matches.value_of("dcdt") {
         _path = t.to_string();
-    }else{
+    } else {
         _path = String::from("127.0.0.1:9002");
     }
     HttpServer::new(|| {

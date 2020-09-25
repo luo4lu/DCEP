@@ -24,7 +24,7 @@ pub fn get_command() -> ArgMatches<'static> {
                 .short("n")
                 .long("username")
                 .help("set database username")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("basename")

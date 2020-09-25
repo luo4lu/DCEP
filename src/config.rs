@@ -9,8 +9,8 @@ pub struct ConfigPath {
 }
 
 impl Default for ConfigPath {
-    fn default() -> Self{
-        Self{
+    fn default() -> Self {
+        Self {
             meta_path: String::from("./digital_currency.json"),
         }
     }
@@ -30,20 +30,20 @@ impl DatabaseAddr {
         let matches: ArgMatches = config_command::get_command();
         if let Some(d) = matches.value_of("database") {
             _addr = d.to_string();
-        }else {
+        } else {
             _addr = String::from("localhost");
         }
         if let Some(n) = matches.value_of("username") {
             _name = n.to_string();
-        }else{
+        } else {
             _name = String::from("postgres");
         }
         if let Some(b) = matches.value_of("basename") {
             _base = b.to_string();
-        }else{
+        } else {
             _base = String::from("currencytransaction");
         }
-        Self{
+        Self {
             data_addr: _addr,
             user_name: _name,
             base_name: _base,
@@ -60,6 +60,6 @@ pub fn get_db() -> Pool {
     cfg.user(&data_value.user_name); //数据库用户名称
     cfg.password("postgres"); //数据库密码
     cfg.dbname(&data_value.base_name); //数据库名称
-    let mgr = Manager::new(cfg,NoTls); //通过数据库管理池配置
-    Pool::new(mgr, 8)  //设置最大连接池
+    let mgr = Manager::new(cfg, NoTls); //通过数据库管理池配置
+    Pool::new(mgr, 8) //设置最大连接池
 }
