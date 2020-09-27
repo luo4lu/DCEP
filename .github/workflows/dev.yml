@@ -1,0 +1,32 @@
+name: dev
+
+on:
+  push:
+    branches: [ dev ]
+
+jobs:
+  build:
+
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build builder
+        uses: docker/build-push-action@v1
+        with:
+          repository: cloud-api/dcds
+          tags: builder
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_USERNAME }}
+          registry: registry.cn-hongkong.aliyuncs.com
+          target: builder
+
+      - name: Build digital_transaction for dev branch
+        uses: docker/build-push-action@v1
+        with: 
+          repository: docker-a-resource.curdate.cn/cloud-api/dcds
+          tags: dev
+          cache_froms: registry.cn-hongkong.aliyuncs.com/cloud-api/dcds:builder
