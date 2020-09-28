@@ -414,7 +414,7 @@ pub async fn get_transaction_list(
         sql_sum.push_str(&(sql_params.len() + 1).to_string());
         sql.push_str(" and create_time < $");
         sql.push_str(&(sql_params.len() + 1).to_string());
-        sql_params.push(req.begin_time.as_ref().unwrap());
+        sql_params.push(req.end_time.as_ref().unwrap());
     }
     let total_state = match conn.query(sql_sum.as_str(), &sql_params[..]).await {
         Ok(value) => value,
