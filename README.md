@@ -67,10 +67,7 @@ X-USERID: uuid
 
 ```json
 {
-    "transaction":[
-        "",
-        "",   //数字货币交易体十六进制数
-    ]
+    "curr_transaction": "String",//数字货币交易体十六进制数
 }
 ```
 
