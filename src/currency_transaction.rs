@@ -102,7 +102,7 @@ pub async fn digistal_transaction(
     let json_transaction = serde_json::to_value(&transaction_wrapper).unwrap();
 
     //let transaction_wrapper = TransactionWrapper::new(transaction_ok);
-    //获取交易体中的输出数字货币
+    //获取交易体中的输入数字货币
     let input: Vec<DigitalCurrencyWrapper> = transaction_wrapper.get_inputs().clone();
     //交易体检查
     let trans_bool = transaction_wrapper.check_validated();

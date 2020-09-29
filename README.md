@@ -172,7 +172,7 @@ X-USERID: uuid
 
 HTTP 请求：`GET /api/public/transaction/list?page=i64&count=i64&transaction_id=String&amount=i64&begin_time=2020-09-15T06:30:46&end_time=`
 //(除page与count为必须参数其余都可选，后面两个参数时间格式一致)
-
+```
 请求头：
 
 ```
@@ -194,6 +194,37 @@ X-USERID: uuid
                 "create_time": "i64",   //交易时间
             },
         ]
+    }
+}
+```
+
+#### 投放系统数字货币统计
+HTTP 请求：`GET /api/public/currency/statis?begin_time=&end_time=2020-09-07T07:42:15.310888`
+```
+(begin_time/end_time(可选参数))
+```
+请求头：
+
+```
+X-USERID: uuid
+```
+
+响应示例：
+
+```json
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+    "circulation_quota": "i64", //流通中
+    "destroy_quota": "i64",  //已销毁
+    "transaction_number": "i64",  //交易次数
+    "circulation_day":[
+       8004750,  //当天
+       0,      //前一天
+       1000050,
+       0,0,0,0
+    ]     //近7天单日已发行总金额  
     }
 }
 ```

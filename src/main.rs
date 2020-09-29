@@ -29,6 +29,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_transaction_info::get_exchange_info)
             .service(get_transaction_info::get_currency_list)
             .service(get_transaction_info::get_transaction_list)
+            .service(get_transaction_info::get_currency_statis)
     })
     .bind(_path)?
     .run()

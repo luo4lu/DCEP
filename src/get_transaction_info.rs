@@ -3,6 +3,7 @@ use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use common_structure::digital_currency::DigitalCurrencyWrapper;
 use log::{info, warn};
 //数据库相关
+use chrono::prelude::*;
 use chrono::NaiveDateTime;
 use deadpool_postgres::Pool;
 use serde::{Deserialize, Serialize};
@@ -115,7 +116,7 @@ pub struct GetExchangeResponse {
     trans_amount: u64,      //交易金额
     transaction_time: i64,  //交易时间
     input: Vec<(String, u64)>,
-    output: Vec<(String, u64)>,
+    output: Vec<(String, i64)>,
 }
 
 #[get("/api/public/transaction/info")]
@@ -133,7 +134,7 @@ pub async fn get_exchange_info(
 
     //获取交易id信息
     let select_exchang = match conn.query(
-        "SELECT (trans_info->'inner'->'inputs'), (trans_info->'inner'->'outputs'),create_time from exchanges where transaction_id = $1 and cloud_user_id = $2",
+        "SELECT (trans_info->'inner'->'inputs'), create_time from exchanges where transaction_id = $1 and cloud_user_id = $2",
         &[&req.transaction_id, &head_str]
     ).await{
         Ok(row) => {
@@ -151,8 +152,7 @@ pub async fn get_exchange_info(
     }
     let input_info: Vec<DigitalCurrencyWrapper> =
         serde_json::from_value(select_exchang[0].get(0)).unwrap();
-    let output: Vec<(String, u64)> = serde_json::from_value(select_exchang[0].get(1)).unwrap();
-    let create: NaiveDateTime = select_exchang[0].get(2);
+    let create: NaiveDateTime = select_exchang[0].get(1);
     let transaction_time = create.timestamp();
     let mut input: Vec<(String, u64)> = Vec::new();
     let mut trans_amount: u64 = 0;
@@ -164,6 +164,39 @@ pub async fn get_exchange_info(
         trans_amount += amount;
         input.push((currency_id, amount))
     }
+    let mut output: Vec<(String, i64)> = Vec::new();
+    //获取本次交易产生的所有订单
+    let select_transid = match conn.query(
+        "SELECT currency_id,amount from transactions where transaction_id = $1 and cloud_user_id = $2",
+        &[&req.transaction_id, &head_str]
+    ).await{
+        Ok(row) => {
+            info!("electe success: {:?}", row);
+            row
+        }
+        Err(error) => {
+            warn!("2、digistal currency transactions select failed :{:?}!!", error);
+            return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(error.to_string()));
+        }
+    };
+    if select_transid.is_empty() {
+        warn!("2、This transaction does not exist");
+        return HttpResponse::Ok().json(ResponseBody::<()>::currency_is_none());
+    }
+    for value in select_transid.iter(){
+        let currency_id:String = value.get(0);
+        let amount: i64 = value.get(1);
+        let mut flag:i32 = 0;
+        for (id, _) in input.iter(){
+            if currency_id == id.clone(){
+                flag += 1;
+            }
+        }
+        if flag == 0 {
+            output.push((currency_id,amount));
+        }
+    }
+
     return HttpResponse::Ok().json(ResponseBody::<GetExchangeResponse>::new_success(Some(
         GetExchangeResponse {
             transaction_id: req.transaction_id.clone(),
@@ -463,4 +496,165 @@ pub async fn get_transaction_list(
             ));
         }
     };
+}
+
+/*
+ *function: 交易系统流通货币统计
+ * param：
+ * data: 数据库连接句柄
+ * req：数据请求结构
+ * req_head::http请求头，包含用户认证
+ *
+ * return :响应数据code=0成功，其他值参考错误列表
+ */
+#[derive(Deserialize, Debug)]
+pub struct AllCurrencyRequest {
+    begin_time: Option<NaiveDateTime>,
+    end_time: Option<NaiveDateTime>,
+}
+//获取金额
+#[derive(Serialize, Debug)]
+struct GetNumberResponse {
+    circulation_quota: i64, //流通中
+    destroy_quota: i64,     //已销毁
+    transaction_number: i64,  //交易次数
+    circulation_day:Vec<i64>
+}
+
+#[get("/api/public/currency/statis")]
+pub async fn get_currency_statis(
+    data: web::Data<Pool>,
+    req: web::Query<AllCurrencyRequest>,
+    req_head: HttpRequest
+) -> impl Responder {
+    //获取请求头中的uuid
+    let http_head = req_head.headers();
+    let head_value = http_head.get("X-USERID").unwrap();
+    let head_str = head_value.to_str().unwrap();
+    //连接数据库
+    let conn = data.get().await.unwrap();
+
+    //货币状态
+    let circulation = String::from("circulate");
+    let destroy = String::from("destroy");
+    //不同状态金额
+    let mut circulation_quota: i64 = 0; //已发行
+    let mut destroy_quota: i64 = 0; //已销毁
+    //构建数据库命令
+    let mut sql_trans = "select count(*)::bigint from exchanges where cloud_user_id = $1".to_string();
+    let mut sql_currcy = "select sum(amount)::BIGINT from transactions where cloud_user_id = $1".to_string();
+    let mut circulation_params: Vec<&(dyn tokio_postgres::types::ToSql + std::marker::Sync)> =
+        vec![&head_str];
+    let mut destroy_params: Vec<&(dyn tokio_postgres::types::ToSql + std::marker::Sync)> =
+        vec![&head_str];
+
+    if req.begin_time.is_some() {
+        sql_trans.push_str(" and create_time > $");
+        sql_trans.push_str(&(circulation_params.len() + 1).to_string());
+        sql_currcy.push_str(" and create_time > $");
+        sql_currcy.push_str(&(circulation_params.len() + 1).to_string());
+        circulation_params.push(req.begin_time.as_ref().unwrap());
+        destroy_params.push(req.begin_time.as_ref().unwrap());
+    }
+    if req.end_time.is_some() {
+        sql_trans.push_str(" and create_time < $");
+        sql_trans.push_str(&(circulation_params.len() + 1).to_string());
+        sql_currcy.push_str(" and create_time < $");
+        sql_currcy.push_str(&(circulation_params.len() + 1).to_string());
+        circulation_params.push(req.end_time.as_ref().unwrap());
+        destroy_params.push(req.end_time.as_ref().unwrap());
+    }
+    //交易次数
+    let select_count = match conn
+    .query(sql_trans.as_str(), &circulation_params[..]).await
+    {
+        Ok(row) => {
+            info!("select success!{:?}", row);
+            row
+        }
+        Err(error) => {
+            warn!("1、get transaction count select failde!!{:?}", error);
+            return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
+                error.to_string()));
+        }
+    };
+    let transaction_number:i64 = select_count[0].get(0);
+    //总金额近7天数据
+    let mut circulation_day:Vec<i64> = vec![0,0,0,0,0,0,0];
+    let select_amount_day = match conn.query("select time_internal,sum(amount)::bigint from 
+    (select to_char(create_time, 'YYYY-MM-DD') as time_internal, * FROM transactions)as foo 
+    where (now()-create_time) <= interval '7days' and status = 'circulate' 
+    group by time_internal ORDER BY time_internal ASC",&[]).await
+    {
+        Ok(row) => {
+            row
+        }
+        Err(error) => {
+            warn!("2、get 7 days data select failde!!{:?}", error);
+            return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
+                error.to_string()));
+        }
+    };
+    //获取当前时间天数
+    let utc: DateTime<Utc> = Utc::now();
+    let days:u32 = utc.day();
+    //更新数组
+    if !(select_amount_day.is_empty()){
+        for value in select_amount_day.iter(){
+            let date: String = value.get(0);
+            let int_date: u32 = (&date[(date.len()-2)..]).parse::<u32>().unwrap();
+            let amount: i64 = value.get(1);
+            let i: usize=(days-int_date) as usize;
+            if i < 7{
+                circulation_day[i] = amount;
+            }
+        }
+    }
+    //计算不同状态金额
+    sql_currcy.push_str(" and status = $");
+    sql_currcy.push_str(&(circulation_params.len() + 1).to_string());
+    circulation_params.push(&circulation);
+    destroy_params.push(&destroy);
+    //获取流通状态金额
+    let circulation_state = match conn
+    .query(sql_currcy.as_str(), &circulation_params[..]).await
+    {
+        Ok(row) => {
+            info!("select success!{:?}", row);
+            row
+        }
+        Err(error) => {
+            warn!("3、get circulation amount select failde!!{:?}", error);
+            return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
+                error.to_string()));
+        }
+    };
+    match circulation_state[0].get(0) {
+        Some(value) => Some(circulation_quota =value),
+        None => None,
+    };
+    //计算销毁金额
+    let destroy_state = match conn
+    .query(sql_currcy.as_str(), &destroy_params[..]).await
+    {
+        Ok(row) => {
+            info!("select success!{:?}", row);
+            row
+        }
+        Err(error) => {
+            warn!("4、get destroy amount select failde!!{:?}", error);
+            return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
+                error.to_string()));
+        }
+    };
+    match destroy_state[0].get(0) {
+        Some(value) => Some(destroy_quota =value),
+        None => None,
+    };
+    return HttpResponse::Ok().json(ResponseBody::<GetNumberResponse>::new_success(Some(GetNumberResponse{
+        circulation_quota, 
+        destroy_quota,   
+        transaction_number, 
+        circulation_day
+    })));
 }
