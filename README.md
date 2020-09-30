@@ -103,6 +103,7 @@ X-USERID: uuid
     "data": {
         "currency_id": "String", //转移之后的数字货币
         "transaction_id": "String",
+        "destroytrans_id": "String", //销毁交易编号
         "status": "String",
         "owner": "String",   //
         "amount": "i64",

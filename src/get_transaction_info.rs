@@ -27,6 +27,7 @@ pub struct GetCurrencyRequest {
 pub struct GetCurrencyResponse {
     currency_id: String, //转移之后的数字货币
     transaction_id: String,
+    destroytrans_id: String,
     status: String,
     owner: String,
     amount: i64,
@@ -81,11 +82,57 @@ pub async fn get_currency_info(
     let create_time = create.timestamp();
     let last: NaiveDateTime = select_currency[0].get(5);
     let late_time = last.timestamp();
-
+    //获取销毁交易编号
+    let destroy_id = match conn.query(
+        "SELECT output_id from currencys where input_id = $1 and cloud_user_id = $2",
+        &[&req.currency_id, &head_str]
+    ).await{
+        Ok(row) => {
+            info!("electe success: {:?}", row);
+            row
+        }
+        Err(error) => {
+            warn!(
+                "2、digistal currency currencys select failed :{:?}!!",
+                error
+            );
+            return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
+                error.to_string(),
+            ));
+        }
+    };
+    let destroytrans_id: String = match destroy_id[0].get(0){
+        Some(value)=> {
+            let des_str: String = Some(value);
+            let id = match conn
+            .query(
+                "SELECT transaction_id from transactions where currency_id = $1 and cloud_user_id = $2",
+                &[&des_str, &head_str],
+            ).await {
+                Ok(row) => {
+                    info!("electe success: {:?}", row);
+                    row
+                }
+                Err(error) => {
+                    warn!(
+                        "3、digistal currency transactions select failed :{:?}!!",
+                        error
+                    );
+                    return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
+                        error.to_string(),
+                    ));
+                }
+            };
+            let trans_id: String = id[0].get(0);
+            trans_id
+        },
+        None => None,
+    };
     return HttpResponse::Ok().json(ResponseBody::<GetCurrencyResponse>::new_success(Some(
         GetCurrencyResponse {
             currency_id: req.currency_id.clone(),
             transaction_id,
+            destroytrans_id,
             status,
             owner,
             amount,
@@ -583,8 +630,8 @@ pub async fn get_currency_statis(
     let mut circulation_day:Vec<i64> = vec![0,0,0,0,0,0,0];
     let select_amount_day = match conn.query("select time_internal,sum(amount)::bigint from 
     (select to_char(create_time, 'YYYY-MM-DD') as time_internal, * FROM transactions)as foo 
-    where (now()-create_time) <= interval '7days' and status = 'circulate' 
-    group by time_internal ORDER BY time_internal ASC",&[]).await
+    where (now()-create_time) <= interval '7days' and status = 'circulate' and cloud_user_id = $1 
+    group by time_internal ORDER BY time_internal ASC",&[&head_str]).await
     {
         Ok(row) => {
             row
