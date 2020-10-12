@@ -103,11 +103,11 @@ pub async fn get_currency_info(
     };
     let destroytrans_id: String = match destroy_id[0].get(0){
         Some(value)=> {
-            let des_str: String = Some(value);
+            let des_str: String = value;
             let id = match conn
             .query(
-                "SELECT transaction_id from transactions where currency_id = $1 and cloud_user_id = $2",
-                &[&des_str, &head_str],
+                "SELECT transaction_id from transactions where currency_id = $1 and cloud_user_id = $2 and status = $3",
+                &[&des_str, &head_str, &"destroy"],
             ).await {
                 Ok(row) => {
                     info!("electe success: {:?}", row);
@@ -123,10 +123,14 @@ pub async fn get_currency_info(
                     ));
                 }
             };
-            let trans_id: String = id[0].get(0);
-            trans_id
+            if id.is_empty(){
+                "null".to_string()
+            }else{
+                let trans_id: String = id[0].get(0);
+                trans_id
+            }
         },
-        None => None,
+        None => "null".to_string(),
     };
     return HttpResponse::Ok().json(ResponseBody::<GetCurrencyResponse>::new_success(Some(
         GetCurrencyResponse {
