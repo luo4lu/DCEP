@@ -27,7 +27,7 @@ pub struct GetCurrencyRequest {
 pub struct GetCurrencyResponse {
     currency_id: String, //转移之后的数字货币
     transaction_id: String,
-    destroytrans_id: String,
+    destroytrans_id: Option<String>,
     status: String,
     owner: String,
     amount: i64,
@@ -101,37 +101,41 @@ pub async fn get_currency_info(
             ));
         }
     };
-    let destroytrans_id: String = match destroy_id[0].get(0){
-        Some(value)=> {
-            let des_str: String = value;
-            let id = match conn
-            .query(
-                "SELECT transaction_id from transactions where currency_id = $1 and cloud_user_id = $2 and status = $3",
-                &[&des_str, &head_str, &"destroy"],
-            ).await {
-                Ok(row) => {
-                    info!("electe success: {:?}", row);
-                    row
+    let mut destroytrans_id: Option<String>= None;
+    if !(destroy_id.is_empty()){
+        destroytrans_id = match destroy_id[0].get(0){
+            Some(value)=> {
+                let des_str: String = value;
+                let id = match conn
+                .query(
+                    "SELECT transaction_id from transactions where currency_id = $1 and cloud_user_id = $2 and status = $3",
+                    &[&des_str, &head_str, &"destroy"],
+                ).await {
+                    Ok(row) => {
+                        info!("electe success: {:?}", row);
+                        row
+                    }
+                    Err(error) => {
+                        warn!(
+                            "3、digistal currency transactions select failed :{:?}!!",
+                            error
+                        );
+                        return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
+                            error.to_string(),
+                        ));
+                    }
+                };
+                if id.is_empty(){
+                    None
+                }else{
+                    let trans_id: Option<String> = id[0].get(0);
+                    trans_id
                 }
-                Err(error) => {
-                    warn!(
-                        "3、digistal currency transactions select failed :{:?}!!",
-                        error
-                    );
-                    return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
-                        error.to_string(),
-                    ));
-                }
-            };
-            if id.is_empty(){
-                "null".to_string()
-            }else{
-                let trans_id: String = id[0].get(0);
-                trans_id
-            }
-        },
-        None => "null".to_string(),
-    };
+            },
+            None => None,
+        };
+    }
+    
     return HttpResponse::Ok().json(ResponseBody::<GetCurrencyResponse>::new_success(Some(
         GetCurrencyResponse {
             currency_id: req.currency_id.clone(),
