@@ -1,5 +1,8 @@
 use crate::config::ConfigPath;
 use crate::response::ResponseBody;
+use crate::foo;
+use crate::config_command;
+use clap::ArgMatches;
 use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
 use asymmetric_crypto::hasher::sha3::Sha3;
 use asymmetric_crypto::keypair;
@@ -15,6 +18,8 @@ use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::prelude::*;
+
+use protobuf::Message;
 
 /*
  *function: 数字货币交易
@@ -35,6 +40,10 @@ pub struct DcdsRequestBody {
 #[derive(Debug, Serialize)]
 pub struct DcdsResponsetBody {
     currency: Vec<String>,
+}
+#[derive(Serialize, Debug)]
+pub struct ProtoMessage{
+    data: Vec<u8>,
 }
 
 #[post("/api/public/transaction")]
@@ -118,6 +127,11 @@ pub async fn digistal_transaction(
     //为存储输入输出分析存储货币id
     let mut input_currency_id: Vec<String> = Vec::new();
     let mut output_currency_id: Vec<String> = Vec::new();
+    //合约验证对象初始化
+    let mut cont_currency = foo::Currency::new();
+    let mut cont_input = foo::TranscationInput::new();
+    let mut cont_output = foo::TranscationOutput::new();
+    let mut cont_trans = foo::Transcation::new();
     //事务开始
     let transaction_sql = conn.transaction().await.unwrap();
     //输入的数字货币
@@ -125,10 +139,15 @@ pub async fn digistal_transaction(
         //货币id
         let currency_id = currency.get_body().get_id_str();
         //金额
-        let amount: i64 = currency.get_body().get_amount() as i64;
+        let amount: i64 = currency.get_body().get_amount().clone() as i64;
         //所有者
         let owner: CertificateSm2 = currency.get_body().get_owner().clone();
         let owner_str: String = owner.to_bytes().encode_hex::<String>();
+        
+        cont_currency.issuer = bytes::Bytes::from(currency.get_body().get_issue().to_bytes().encode_hex::<String>());
+        cont_currency.script = bytes::Bytes::from(currency.get_body().get_script().encode_hex::<String>());
+        cont_currency.signature = bytes::Bytes::from(currency.get_signature().clone().unwrap().to_bytes().encode_hex::<String>());
+        warn!("signature = {:?}",cont_currency.signature);
         //数据表检查数字货币id
         let select_currency = match transaction_sql
             .query(
@@ -162,8 +181,14 @@ pub async fn digistal_transaction(
                 &[&transfer, &owner_str, &currency_id, &head_str]).await.unwrap();
             }
         }
-        input_currency_id.push(currency_id);
+        input_currency_id.push(currency_id.clone());
+        cont_currency.id = bytes::Bytes::from(currency_id);
+        cont_currency.amount = amount as u64;
+        cont_currency.owner = bytes::Bytes::from(owner_str);
+        cont_input.currency.push(cont_currency.clone());
     }
+    cont_input.arguments = bytes::Bytes::from("Keep field");
+    cont_trans.inputs.push(cont_input);
     //本次交易总金额
     let mut total_amount: i64 = 0;
     //输出的数字货币
@@ -173,8 +198,11 @@ pub async fn digistal_transaction(
         //货币id
         let currency_id = currency.get_body().get_id_str();
         //金额
-        let amount: i64 = currency.get_body().get_amount() as i64;
+        let amount: i64 = currency.get_body().get_amount().clone() as i64;
         total_amount += amount;
+        
+        cont_output.issuer = bytes::Bytes::from(currency.get_body().get_issue().to_bytes().encode_hex::<String>());
+        cont_output.script = bytes::Bytes::from(currency.get_body().get_script().encode_hex::<String>());
         //所有者
         let owner: CertificateSm2 = currency.get_body().get_owner().clone();
         let owner_str: String = owner.to_bytes().encode_hex::<String>();
@@ -182,9 +210,34 @@ pub async fn digistal_transaction(
         transaction_sql.query("INSERT INTO transactions (currency_id, transaction_id, status, owner, amount,cloud_user_id,
             create_time, update_time) VALUES ($1, $2, $3, $4, $5 ,$6,now(), now())",
             &[&currency_id, &transaction_id, &possess, &owner_str,&amount, &head_str]).await.unwrap();
-
+        
+        cont_output.amount = amount as u64;
+        cont_trans.outputs.push(cont_output.clone());
         output_currency_id.push(currency_id);
     }
+    //合约验证
+    let cont_data = cont_trans.write_to_bytes().unwrap();
+    let result: ProtoMessage = ProtoMessage{
+        data: cont_data,
+    };
+    warn!("PARAMS:{:?}\n",result);
+    let matches: ArgMatches = config_command::get_command();
+    let cont_addr = matches.value_of("contract").unwrap();
+    let cont_path = format!("http://{}/api/transcation", cont_addr);
+    let info_client = reqwest::Client::new();
+    let _users_res = match info_client
+        .post(&cont_path)
+        .json(&result)
+        .send()
+        .await{
+            Ok(value) => value,
+            Err(error)=> {
+                warn!("contract reqwest address failed");
+                return HttpResponse::Ok().json(ResponseBody::<String>::return_unwrap_error(
+                    error.to_string(),
+                )); 
+            }
+        };
     //更新交易结构表
     for output_id in output_currency_id.iter() {
         for input_id in input_currency_id.iter() {

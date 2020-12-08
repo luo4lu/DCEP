@@ -6,6 +6,7 @@ mod get_transaction_info;
 use actix_cors::Cors; //跨域crate
 use clap::ArgMatches;
 use log::Level;
+pub mod foo;
 pub mod response;
 
 #[actix_rt::main]

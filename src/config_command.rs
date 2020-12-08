@@ -13,6 +13,14 @@ pub fn get_command() -> ArgMatches<'static> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("contract")
+                .short("c")
+                .long("contract")
+                .help("Set the contract validation address and port")
+                .takes_value(true)
+                .default_value("192.168.1.249:8888")
+        )
+        .arg(
             Arg::with_name("database")
                 .short("d")
                 .long("database")
